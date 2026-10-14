@@ -1,29 +1,25 @@
-# Livestock Family Tree
+# AgroLineAge — Livestock Family Tree
 
-Static web app (no server). Tracks livestock lineage (e.g. Pig 1 → its offspring) with the owning farmer on every animal,
-an Organization view (Organization → Farmers → their animals' lineage), and saves to **your Google Drive**.
+Static site, no build step. Folder layout (same as your project):
 
-## 1. Google setup (one time)
-1. https://console.cloud.google.com → create a project.
-2. **APIs & Services → Library** → enable **Google Drive API**.
-3. **OAuth consent screen** → External → fill app name/email → add your Google account(s) under **Test users**.
-4. **Credentials → Create credentials → OAuth client ID → Web application**.
-   Under **Authorized JavaScript origins** add `https://YOUR-USERNAME.github.io` (and `http://localhost:8080` for local testing).
-5. Copy the Client ID into `src/js/config.js`.
+    index.html  sw.js  manifest.webmanifest
+    src/js/config.js   src/js/app.js   src/css/style.css   src/icon.svg
 
-## 2. Deploy to GitHub Pages
-1. Create a GitHub repo, upload the whole project (`index.html`, `src/`, `README.md`).
-2. Settings → Pages → Deploy from branch → `main` / root.
-3. Open `https://YOUR-USERNAME.github.io/REPO-NAME/` → **Sign in with Google**.
+Serve it over http(s) (e.g. `python3 -m http.server`) — Google sign-in and the offline service worker do not work from `file://`.
 
-## How data is saved
-- Scope used: `drive.file` (the app only sees files it created). Data lives in `livestock-tree.json` in your Drive and
-  auto-saves ~1.5s after each change. A copy is also cached in the browser.
-- Export menu: download `.xlsx`/`.pptx`, or save `.xlsx`, a native Google Sheet, or `.pptx` to Drive.
-- Import: `.xlsx` with `Farmers` and `Animals` sheets (same layout as export). Validates IDs, owners, parents, cycles.
+## Google sign-in
+In Google Cloud Console → OAuth client (Web), add every URL you host the app from under **Authorized JavaScript origins**.
+Scopes used: `drive.file` (only files this app creates), plus `openid email profile` to show who is signed in.
+"Sign out" revokes the token and stops syncing; local data stays on the device.
 
-## Limits
-- Sign-in lasts ~1 hour; after that the status bar asks you to sign in again (changes stay in the browser meanwhile).
-- Last write wins if two people edit at once. Sharing a tree between users needs a backend.
-- Files go to My Drive (or `FOLDER_ID`); there is no folder picker.
-- Not tested against a live Google account — test sign-in/export after setup.
+## Offline / online
+* The first visit caches the app and the Excel/PowerPoint libraries, so it opens with no internet.
+* All data (and attachments) are saved on the device first. While offline, changes queue up and sync to Drive automatically when the connection returns.
+* "Work offline" pauses syncing manually (e.g. on a weak connection).
+
+## Excel format (export = import)
+Sheets: **Organizations**, **Farmers**, **Livestock**, **Activities**. People and organizations are matched by *name*, not by ID.
+Livestock columns: Tag, Species, Breed, Sex, Born, Status, Farmer Name, Organization, Parent Tag, Parent Organization (only if the parent tag exists in several organizations), Insured, Insurance Agency, Policy No., Coverage Start, Coverage End, Notes.
+Attachments are not stored in Excel.
+
+Edit the insurance agency choices in `src/js/config.js` (`INSURERS`).
