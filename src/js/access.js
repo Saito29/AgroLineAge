@@ -256,27 +256,54 @@
 
   window.openUserManagement = async () => {
     if (!authReady || currentProfile?.app_role !== 'admin') return;
-    $('dg').innerHTML='<h3>User management</h3><p class="mu">Loading registrations…</p>';
-    if (!$('dg').open) $('dg').showModal();
+    const dialog = $('dg');
+    dialog.innerHTML = '<div class="admin-loading"><span class="admin-spinner"></span><p>Loading account requests…</p></div>';
+    if (!dialog.open) dialog.showModal();
     try {
       const {data:users,error}=await client.from('profiles').select('id,email,display_name,approval_status,app_role,created_at,status_reason').order('created_at',{ascending:false});
       if(error) throw error;
-      const pending=users.filter(u=>u.approval_status==='pending').length;
-      const rows=users.map(u=>`<tr><td><b>${escHtml(u.display_name||'(no name)')}</b><br>${escHtml(u.email)}<br><span class="mu">${escHtml(new Date(u.created_at).toLocaleString())}</span></td><td>${escHtml(u.approval_status)}${u.app_role==='admin'?' · admin':''}</td><td>${u.approval_status==='pending'?`<button class="sm p" data-user="${u.id}" data-status="approved">Approve</button> <button class="sm d" data-user="${u.id}" data-status="rejected">Reject</button>`:''}${u.approval_status==='approved'&&u.app_role!=='admin'?`<button class="sm d" data-user="${u.id}" data-status="suspended">Suspend</button>`:''}${u.approval_status==='suspended'?`<button class="sm p" data-user="${u.id}" data-status="approved">Reactivate</button>`:''}${u.approval_status==='rejected'?`<button class="sm p" data-user="${u.id}" data-status="approved">Approve</button>`:''}</td></tr>`).join('');
-      $('dg').innerHTML=`<h3>User management (${pending} pending)</h3><div style="max-height:55vh;overflow:auto"><table class="t">${rows}</table></div><div class="row"><button id="user-audit">Approval audit</button><button onclick="$('dg').close()">Close</button></div>`;
-      $('dg').querySelectorAll('[data-user]').forEach(button=>button.onclick=async()=>{
-        const status=button.dataset.status, reason=status==='rejected'||status==='suspended'?prompt('Optional reason:')||'': '';
-        if(!confirm(`${status[0].toUpperCase()+status.slice(1)} this account?`)) return;
-        button.disabled=true;
-        const {error}=await client.rpc('admin_set_user_status',{p_user_id:button.dataset.user,p_status:status,p_reason:reason});
-        if(error){alert(error.message);button.disabled=false;}else await window.openUserManagement();
-      });
-      $('user-audit').onclick=async()=>{
-        const {data,error}=await client.from('audit_events').select('actor_id,record_id,action,details,created_at').eq('record_type','user').order('created_at',{ascending:false}).limit(100);
-        if(error)return alert(error.message);
-        $('dg').innerHTML=`<h3>Approval audit history</h3><div style="max-height:60vh;overflow:auto"><table class="t"><tbody>${data.map(x=>`<tr><td>${escHtml(x.action)}<br><span class="mu">${escHtml(x.record_id)} · ${escHtml(x.created_at)}</span></td><td>${escHtml(x.details?.reason||'')}</td></tr>`).join('')}</tbody></table></div><div class="row"><button onclick="openUserManagement()">Back</button></div>`;
+      let filter='all';
+      const dateLabel = value => { const date=new Date(value); return Number.isNaN(date.getTime())?'Date unavailable':date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); };
+      const render = () => {
+        const pending=users.filter(u=>u.approval_status==='pending').length;
+        const approved=users.filter(u=>u.approval_status==='approved').length;
+        const limited=users.length-pending-approved;
+        const shown=users.filter(u=>filter==='all'||(filter==='limited'?['rejected','suspended'].includes(u.approval_status):u.approval_status===filter));
+        const cards=shown.map(u=>{
+          const status=u.approval_status;
+          const actions=status==='pending'
+            ? `<button class="admin-action admin-approve" data-user="${escHtml(u.id)}" data-status="approved"><span aria-hidden="true">✓</span> Approve</button><button class="admin-action admin-reject" data-user="${escHtml(u.id)}" data-status="rejected">Decline</button>`
+            : status==='approved'&&u.app_role!=='admin'
+              ? `<button class="admin-action admin-suspend" data-user="${escHtml(u.id)}" data-status="suspended">Suspend access</button>`
+              : ['suspended','rejected'].includes(status)
+                ? `<button class="admin-action admin-approve" data-user="${escHtml(u.id)}" data-status="approved"><span aria-hidden="true">↻</span> Restore access</button>` : '';
+          return `<article class="admin-user-card"><div class="admin-user-avatar" aria-hidden="true">${escHtml((u.display_name||u.email||'?').trim().charAt(0).toUpperCase())}</div><div class="admin-user-info"><div class="admin-user-heading"><h3>${escHtml(u.display_name||'Name not provided')}</h3><span class="admin-status-pill status-${escHtml(status)}">${escHtml(status)}</span>${u.app_role==='admin'?'<span class="admin-role-pill">Administrator</span>':''}</div><p class="admin-user-email">${escHtml(u.email)}</p><p class="admin-user-date">Requested ${dateLabel(u.created_at)}</p>${u.status_reason?`<p class="admin-user-reason">${escHtml(u.status_reason)}</p>`:''}</div><div class="admin-user-actions">${actions||'<span class="admin-no-action">No action needed</span>'}</div></article>`;
+        }).join('');
+        dialog.innerHTML=`<section class="admin-panel"><header class="admin-panel-header"><div><span class="admin-eyebrow">WORKSPACE ACCESS</span><h2>Account approvals</h2><p>Review who can access your shared farm records.</p></div><button class="admin-close" type="button" aria-label="Close user management">×</button></header><div class="admin-summary"><div class="admin-stat"><span class="admin-stat-label">Total accounts</span><b>${users.length}</b></div><div class="admin-stat admin-stat-pending"><span class="admin-stat-label">Waiting for review</span><b>${pending}</b></div><div class="admin-stat"><span class="admin-stat-label">Approved</span><b>${approved}</b></div><div class="admin-stat"><span class="admin-stat-label">Limited access</span><b>${limited}</b></div></div><div class="admin-list-heading"><div><h3>Farm community</h3><span>${shown.length} ${shown.length===1?'account':'accounts'}</span></div><button class="admin-audit-button" type="button">View approval history</button></div><nav class="admin-filters" aria-label="Filter accounts"><button type="button" data-filter="all" class="${filter==='all'?'is-active':''}">All <span>${users.length}</span></button><button type="button" data-filter="pending" class="${filter==='pending'?'is-active':''}">Pending <span>${pending}</span></button><button type="button" data-filter="approved" class="${filter==='approved'?'is-active':''}">Approved <span>${approved}</span></button><button type="button" data-filter="limited" class="${filter==='limited'?'is-active':''}">Limited <span>${limited}</span></button></nav><div class="admin-user-list">${cards||'<div class="admin-empty"><span aria-hidden="true">✓</span><h3>All clear</h3><p>No accounts match this filter.</p></div>'}</div><footer class="admin-panel-footer"><span>Only approved accounts can access shared farm records.</span></footer></section>`;
+        dialog.querySelector('.admin-close').onclick=()=>dialog.close();
+        dialog.querySelector('.admin-filters').querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{filter=button.dataset.filter;render();});
+        dialog.querySelector('.admin-audit-button').onclick=showAudit;
+        dialog.querySelectorAll('[data-user]').forEach(button=>button.onclick=async()=>{
+          const status=button.dataset.status, reason=status==='rejected'||status==='suspended'?prompt('Optional reason:')||'':'';
+          if(!confirm(`${status==='approved'?'Approve / restore':status==='rejected'?'Decline':'Suspend'} this account?`))return;
+          button.disabled=true;
+          const {error}=await client.rpc('admin_set_user_status',{p_user_id:button.dataset.user,p_status:status,p_reason:reason});
+          if(error){alert(error.message);button.disabled=false;}else await window.openUserManagement();
+        });
       };
-    } catch(error) { $('dg').innerHTML=`<h3>User management</h3><p class="err">${escHtml(error.message)}</p><button onclick="$('dg').close()">Close</button>`; }
+      const showAudit = async () => {
+        const {data,error}=await client.from('audit_events').select('actor_id,record_id,action,details,created_at').eq('record_type','user').order('created_at',{ascending:false}).limit(100);
+        if(error){alert(error.message);return;}
+        const rows=data.map(item=>`<article class="admin-audit-row"><span class="admin-audit-mark" aria-hidden="true">↗</span><div><b>${escHtml(item.action.replaceAll('_',' '))}</b><p>${escHtml(item.details?.reason||'Account status updated')}</p><small>${escHtml(item.record_id)} · ${dateLabel(item.created_at)}</small></div></article>`).join('');
+        dialog.innerHTML=`<section class="admin-panel"><header class="admin-panel-header"><div><span class="admin-eyebrow">ADMINISTRATOR LOG</span><h2>Approval history</h2><p>Recent access decisions for this workspace.</p></div><button class="admin-close" type="button" aria-label="Close user management">×</button></header><div class="admin-audit-list">${rows||'<div class="admin-empty"><h3>No history yet</h3><p>Approval actions will appear here.</p></div>'}</div><footer class="admin-panel-footer"><button class="admin-back-button" type="button">← Back to accounts</button><span>Latest 100 access decisions</span></footer></section>`;
+        dialog.querySelector('.admin-close').onclick=()=>dialog.close();
+        dialog.querySelector('.admin-back-button').onclick=render;
+      };
+      render();
+    } catch(error) {
+      dialog.innerHTML=`<section class="admin-panel admin-error-panel"><header class="admin-panel-header"><div><span class="admin-eyebrow">WORKSPACE ACCESS</span><h2>User management</h2></div><button class="admin-close" type="button" aria-label="Close user management">×</button></header><p class="err">${escHtml(error.message)}</p></section>`;
+      dialog.querySelector('.admin-close').onclick=()=>dialog.close();
+    }
   };
 
   if (!window.supabase?.createClient || !CFG.SUPABASE_URL || !CFG.SUPABASE_PUBLISHABLE_KEY) {
