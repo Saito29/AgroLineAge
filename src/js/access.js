@@ -5,6 +5,7 @@
   const show = (id, on) => { el(id).hidden = !on; };
   let client = null, mode = 'login', currentProfile = null, authReady = false, statusChannel = null, sharedChannel = null;
   let dbBaseline = {organizations:new Map(),owners:new Map(),animals:new Map(),activities:new Map(),attachments:new Map()};
+  let ownershipHistory=new Map();
   let cloudQueue = Promise.resolve();
   let pendingLocalSaves=0, localSaveFailed=false, remoteRefreshPending=false, cloudSaving=false, remoteRefreshTimer=null;
   const escHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -29,14 +30,15 @@
   }
 
   async function loadSharedRecords() {
-    const [orgs, owners, animals, activities, attachments] = await Promise.all([
+    const [orgs, owners, animals, activities, attachments, transfers] = await Promise.all([
       client.from('organizations').select('*').is('archived_at', null).order('name'),
       client.from('owners').select('*').is('archived_at', null).order('name'),
       client.from('animals').select('*').is('archived_at', null).order('tag'),
       client.from('activities').select('*').is('archived_at', null).order('date', {ascending:false}),
-      client.from('attachments').select('*').is('archived_at', null)
+      client.from('attachments').select('*').is('archived_at', null),
+      client.from('ownership_transfers').select('animal_id,previous_owner_id,new_owner_id,transferred_at,reference,notes,created_at').order('transferred_at').order('created_at')
     ]);
-    for (const result of [orgs, owners, animals, activities, attachments]) if (result.error) throw result.error;
+    for (const result of [orgs, owners, animals, activities, attachments, transfers]) if (result.error) throw result.error;
     const attMap = new Map();
     for (const x of attachments.data) {
       const key = x.animal_id ? `A:${x.animal_id}` : `T:${x.activity_id}`;
@@ -57,11 +59,25 @@
       animals:new Map(animals.data.map(x=>[x.id,x])), activities:new Map(activities.data.map(x=>[x.id,x])),
       attachments:new Map(attachments.data.map(x=>[x.id,x]))
     };
+    const ownerNames=new Map(owners.data.map(x=>[x.id,x.name]));
+    ownershipHistory=new Map();
+    for(const transfer of transfers.data||[]) {
+      if(!ownershipHistory.has(transfer.animal_id))ownershipHistory.set(transfer.animal_id,[]);
+      ownershipHistory.get(transfer.animal_id).push({...transfer,previousOwnerName:ownerNames.get(transfer.previous_owner_id)||'Previous owner',newOwnerName:ownerNames.get(transfer.new_owner_id)||'New owner'});
+    }
+    window.AGRO_TRANSFER_HISTORY=id=>ownershipHistory.get(id)||[];
     S = migrate(state);
     render(true);
     return !orgs.data.length && !owners.data.length && !animals.data.length && !activities.data.length;
   }
 
+  window.AGRO_TRANSFER_ANIMAL=async({animalId,expectedOwnerId,newOwnerId,transferredAt,reference,notes})=>{
+    if(!authReady||!currentProfile)throw new Error('An approved signed-in account is required.');
+    const {data,error}=await client.rpc('transfer_animal',{p_animal_id:animalId,p_expected_owner_id:expectedOwnerId,p_new_owner_id:newOwnerId,p_transferred_at:transferredAt,p_reference:reference||'',p_notes:notes||'',p_request_id:crypto.randomUUID()});
+    if(error)throw error;
+    await loadSharedRecords();
+    return data;
+  };
   const nullable = value => value === '' || value == null ? null : value;
   const cloudStatus = (message, bad=false) => { const status=el('st'); if(status){status.textContent=message;status.className=bad?'err':'';} };
   const hasOpenEditor = () => Boolean(el('dm')?.open || el('dg')?.open);
@@ -83,7 +99,7 @@
   function subscribeSharedChanges() {
     if(sharedChannel)client.removeChannel(sharedChannel);
     let channel=client.channel('shared-records-live');
-    for(const table of ['organizations','owners','animals','activities','attachments']) {
+    for(const table of ['organizations','owners','animals','activities','attachments','ownership_transfers']) {
       channel=channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{
         remoteRefreshPending=true;
         if(!pendingLocalSaves&&!cloudSaving&&!hasOpenEditor())scheduleSharedRefresh();

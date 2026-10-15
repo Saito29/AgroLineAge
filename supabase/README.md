@@ -24,3 +24,7 @@ All authenticated approved users share the same livestock tables. Pending, rejec
 Approved users load and save the shared organization, owner, animal, and activity records through the Data API. Animal ownership changes use the guarded transfer RPC. Attachments use the private `animal-attachments` bucket. When a project has no records, the app offers to import the current browser's locally saved records. Existing Supabase data takes precedence and is loaded into the app.
 
 Apply all four migrations, including the Realtime publication migration, then deploy the updated files. Live shared-record refreshes require authenticated approved users and working Realtime subscriptions. The app cannot verify the Supabase connection until the migrations have been run and the Auth redirect URLs are configured in the project dashboard.
+
+## Livestock ownership rollover
+
+Use **Transfer / rollover** from an animal's details to record a change of owner. The animal remains the same record, so its tag, parent, activities, attachments, and offspring links stay intact. Existing offspring keep their recorded owners; offspring added after the transfer inherit the animal's new owner and remain connected as a new branch of the same family tree. The ownership journey lists each transfer in order as rollover #1, #2, and so on. Transfers use the guarded `transfer_animal` RPC from migration 2.

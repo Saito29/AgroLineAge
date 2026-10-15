@@ -100,8 +100,10 @@ function roots(){
   const vs=new Set(S.animals.filter(a=>orgF=='all'||(fm(a.owner)||{}).org==orgF).map(a=>a.id));
   const An=(a,same)=>{const ks=S.animals.filter(k=>k.parent==a.id&&vs.has(k.id)&&(!same||k.owner==a.owner)),c=col.has(a.id)&&ks.length>0;return{id:a.id,t:'a',r:a,n:ks.length,c,k:c?[]:ks.map(k=>An(k,same))}};
   if(view=='o')return S.orgs.filter(o=>orgF=='all'||o.id==orgF).map(o=>{const fs=S.farmers.filter(f=>f.org==o.id),c=col.has(o.id)&&fs.length>0;
-    return{id:o.id,t:'o',r:o,n:fs.length,c,k:c?[]:fs.map(f=>{const tops=S.animals.filter(a=>a.owner==f.id&&!(by(a.parent)&&by(a.parent).owner==f.id)),c2=col.has(f.id)&&tops.length>0;
-      return{id:f.id,t:'f',r:f,n:tops.length,c:c2,k:c2?[]:tops.map(a=>An(a,true))}})}});
+    return{id:o.id,t:'o',r:o,n:fs.length,c,k:c?[]:fs.map(f=>{const tops=S.animals.filter(a=>a.owner==f.id&&!(by(a.parent)&&by(a.parent).owner==f.id)),branches=[];
+      S.animals.filter(a=>vs.has(a.id)).forEach(a=>(window.AGRO_TRANSFER_HISTORY?.(a.id)||[]).forEach((transfer,index)=>{if(transfer.previous_owner_id==f.id)branches.push({id:`x${f.id}_${a.id}_${index}`,t:'x',r:a,transfer,step:index+1,targetId:a.id,n:0,c:false,k:[]})}));
+      const c2=col.has(f.id)&&(tops.length+branches.length)>0;
+      return{id:f.id,t:'f',r:f,n:tops.length+branches.length,c:c2,k:c2?[]:[...tops.map(a=>An(a,true)),...branches]}})}});
   const rs=focus?(vs.has(focus)?[by(focus)]:[]):S.animals.filter(a=>vs.has(a.id)&&!vs.has(a.parent));
   return rs.map(a=>An(a,false))}
 const meas=n=>n.sw=n.k.length?Math.max(W,n.k.reduce((s,c)=>s+meas(c),0)+GX*(n.k.length-1)):W;
@@ -111,10 +113,13 @@ function cardHtml(n){const r=n.r,g=G[n.id],tg=n.n?`<button class="tg" data-a="tg
   if(n.t=='a'){const o=ownerOrg(r),f=fm(r.owner);oc_=oc(o);cls+=' an sx-'+(r.sex||'U')+(r.status=='Deceased'?' dead':'');
     inner=`<i class="ob"></i><button class="inf" data-a="info" title="Open details &amp; activities">ⓘ</button><div class="t1"><span class="av">${ico(r.species)}</span><b>${esc(r.tag)}</b></div><div class="t2"><span class="sx">${sexT(r)}</span> · ${esc(r.species)}${r.breed?' · '+esc(r.breed):''}</div><div class="t3">👤 ${esc(f?f.name:'No owner')}${r.born?' · '+esc(r.born):''}</div><div class="t4"><span class="pill st-${esc(r.status)}">${esc(r.status)}</span>${o?`<span class="oc" title="${esc(o.name)}">${esc(o.name)}</span>`:''}${r.insured=='Yes'?'<span title="Insured">🛡</span>':''}</div>`}
   else if(n.t=='f'){const o=farmerOrg(r);oc_=oc(o);cls+=' fr';inner=`<i class="ob"></i><div class="t1"><span class="av">🧑‍🌾</span><b>${esc(r.name)}</b></div><div class="t2">${esc(r.farm||'')}</div><div class="t3">${S.animals.filter(a=>a.owner==r.id).length} animals</div><div class="t4"><span class="oc">${esc(o?o.name:'')}</span></div>`}
+  else if(n.t=='x'){const recipient=fm(n.transfer.new_owner_id);oc_=oc(farmerOrg(fm(n.transfer.previous_owner_id)));cls+=' transfer-ref sx-'+(r.sex||'U')+(r.status=='Deceased'?' dead':'');inner=`<i class="ob"></i><button class="inf" data-a="info" title="Open the shared animal record">i</button><div class="t1"><span class="av">${ico(r.species)}</span><b>${esc(r.tag)}</b></div><div class="t2"><span class="sx">${sexT(r)}</span> · ${esc(r.species)}${r.breed?' · '+esc(r.breed):''}</div><div class="t3">Transferred to ${esc(recipient?recipient.name:'new owner')}</div><div class="t4"><span class="rollover-copy-label" title="Rollover copy · transfer #${n.step} · ${esc(n.transfer.transferred_at||'date not recorded')}">ROLLOVER COPY · #${n.step} · ${esc(n.transfer.transferred_at||'date not recorded')}</span><span class="pill st-${esc(r.status)}">${esc(r.status)}</span></div>`}
   else{oc_=oc(r);cls+=' og';inner=`<i class="ob"></i><div class="t1"><span class="av">🏢</span><b>${esc(r.name)}</b></div><div class="t2">${esc(r.location||'')}</div><div class="t3">${S.farmers.filter(f=>f.org==r.id).length} farmers · ${S.animals.filter(a=>(fm(a.owner)||{}).org==r.id).length} animals</div>`}
-  return `<div class="${cls}${sel==n.id?' sel':''}${n.c?' cn':''}" id="c-${n.id}" style="left:${g.x}px;top:${g.y}px;--oc:${oc_}">${inner}${tg}</div>`}
+  return `<div class="${cls}${sel==(n.t=='x'?r.id:n.id)?' sel':''}${n.c?' cn':''}" id="c-${n.id}" style="left:${g.x}px;top:${g.y}px;--oc:${oc_}">${inner}${tg}</div>`}
 function edges(){let h='';for(const id in G){const g=G[id],a=G[g.p];if(!a)continue;const x1=a.x+W/2,y1=a.y+H,x2=g.x+W/2,y2=g.y,ym=Math.max(y1+14,(y1+y2)/2),cross=g.n.t=='a'&&a.n.t=='a'&&g.n.r.owner!=a.n.r.owner;
-  h+=`<path ${cross?'class="x"':''} d="M${x1} ${y1}V${ym}H${x2}V${y2}"/>`}$('ed').innerHTML=h}
+  h+=`<path ${cross?'class="x"':''} d="M${x1} ${y1}V${ym}H${x2}V${y2}"/>`}
+  for(const id in G){const g=G[id];if(g.n.t!='x')continue;const target=G[g.n.targetId];if(!target)continue;const x1=g.x+W,y1=g.y+H/2,x2=target.x,y2=target.y+H/2,mid=(x1+x2)/2;h+=`<path class="ownership-link" d="M${x1} ${y1}C${mid} ${y1} ${mid} ${y2} ${x2} ${y2}"/>`}
+  $('ed').innerHTML=h}
 function applyV(){$('wd').style.transform=`translate(${V.x}px,${V.y}px) scale(${V.k})`;$('zp').textContent=Math.round(V.k*100)+'%'}
 function render(refit){
   if(focus&&!by(focus))focus=null;if(orgF!='all'&&!og(orgF))orgF='all';if(sel&&!by(sel)&&!fm(sel)&&!og(sel))sel=null;
@@ -161,9 +166,9 @@ const endP=e=>{pts.delete(e.pointerId);if(pts.size<2)pin=null;
   if(pan){pan=null;cv.classList.remove('pan')}};
 cv.addEventListener('pointerup',endP);cv.addEventListener('pointercancel',endP);
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect();zoomAt(e.clientX-r.left,e.clientY-r.top,V.k*Math.exp(-e.deltaY*(e.ctrlKey?.01:.0015)))},{passive:false});
-cv.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.card').id.slice(2);b.dataset.a=='info'?openM(id):tog(id)});
-cv.addEventListener('dblclick',e=>{const c=e.target.closest('.card');if(c&&by(c.id.slice(2)))openM(c.id.slice(2))});
-function pick(id){sel=id;document.querySelectorAll('.card.sel').forEach(c=>c.classList.remove('sel'));$('c-'+id)?.classList.add('sel');side()}
+cv.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.card').id.slice(2),n=G[id]?.n,animalId=n?.t=='x'?n.r.id:id;b.dataset.a=='info'?openM(animalId):tog(id)});
+cv.addEventListener('dblclick',e=>{const c=e.target.closest('.card'),n=c&&G[c.id.slice(2)]?.n;if(n&&(n.t=='a'||n.t=='x'))openM(n.r.id)});
+function pick(id){const n=G[id]?.n;id=n?.t=='x'?n.r.id:id;sel=id;document.querySelectorAll('.card.sel').forEach(c=>c.classList.remove('sel'));$('c-'+id)?.classList.add('sel');side()}
 function tog(id){col.has(id)?col.delete(id):col.add(id);render()}
 function setAll(v){col=new Set(v?[...S.animals.filter(a=>kidsAll(a.id).length).map(a=>a.id),...S.farmers.map(f=>f.id),...S.orgs.map(o=>o.id)]:[]);render(true)}
 function bc2(id,v){[id,...desc(id)].forEach(x=>{if(kidsAll(x).length)v?col.add(x):col.delete(x)});if(!v)col.delete(id);render()}
@@ -181,18 +186,39 @@ const sec=(k,t,b,def=true)=>`<details ${(k in OP?OP[k]:def)?'open':''} ontoggle=
 const kv=L=>'<dl class="kv">'+L.filter(x=>x[1]!==''&&x[1]!=null).map(([a,b])=>`<dt>${a}</dt><dd>${b}</dd>`).join('')+'</dl>';
 const chip=(a,c)=>`<span class="chip ${a.sex||''}"><a onclick="${c=='m'?`openM('${a.id}')`:`goto('${a.id}')`}" style="cursor:pointer">${ico(a.species)} ${esc(a.tag)}</a><button title="Open details &amp; activities" onclick="openM('${a.id}')">🔍</button></span>`;
 function setTab(c,t){PT[c]=t;c=='m'?$('dm').innerHTML=mHtml():side()}
-function apanel(a,c){const o=ownerOrg(a),f=fm(a.owner),p=by(a.parent),ks=kidsAll(a.id),L=actsOf(a.id),tab=PT[c]||'d';
-  let h=`<h3>${ico(a.species)} ${esc(a.tag)}</h3><div class="hd"><span class="sxb ${a.sex||'U'}">${sexT(a)}</span><span class="pill st-${esc(a.status)}">${esc(a.status)}</span>${o?`<span class="oc" style="--oc:${o.color}">${esc(o.name)}</span>`:''}${a.insured=='Yes'?'<span class="sxb U">🛡 Insured</span>':''}</div>
+function transferAnimal(id){
+  const a=by(id);if(!a)return;
+  const destinations=S.farmers.filter(f=>f.id!==a.owner);
+  if(!destinations.length)return alert('Add another farmer before transferring this animal.');
+  const history=window.AGRO_TRANSFER_HISTORY?.(id)||[],nextRollover=history.length+1;
+  $('dg').innerHTML=`<h3>Transfer livestock ownership</h3><p class="mu">This will be rollover #${nextRollover} for <b>${esc(a.tag)}</b>. The animal keeps the same identity, parent, activities, attachments, and records.</p><div class="transfer-preserve"><b>Family links stay intact</b><span>Existing offspring remain linked to this parent and keep their current owners. Offspring added afterward will use the new owner and create a new branch in the same family tree.</span></div><label for="transfer-owner">New owner</label><select id="transfer-owner">${destinations.map(f=>`<option value="${esc(f.id)}">${esc(f.name)} — ${esc((farmerOrg(f)||{}).name||'No organization')}</option>`).join('')}</select><label for="transfer-date">Transfer date</label><input id="transfer-date" type="date" value="${new Date().toISOString().slice(0,10)}"><label for="transfer-reference">Reference (optional)</label><input id="transfer-reference" maxlength="120" placeholder="Sale, handover, or record number"><label for="transfer-notes">Notes (optional)</label><textarea id="transfer-notes" rows="3" maxlength="1000" placeholder="Add context for the next owner"></textarea><div id="transfer-error" class="err" role="alert"></div><div class="row"><button class="p" id="transfer-submit">Record rollover #${nextRollover}</button><button id="transfer-cancel">Cancel</button></div>`;
+  $('dg').showModal();$('transfer-cancel').onclick=()=>$('dg').close();
+  $('transfer-submit').onclick=async()=>{
+    const button=$('transfer-submit'),newOwnerId=$('transfer-owner').value,transferredAt=$('transfer-date').value;
+    if(!newOwnerId||newOwnerId===a.owner)return $('transfer-error').textContent='Choose a different owner.';
+    if(!transferredAt)return $('transfer-error').textContent='Enter the transfer date.';
+    if(a.born&&transferredAt<a.born)return $('transfer-error').textContent='Transfer date cannot be before the animal’s birth.';
+    button.disabled=true;$('transfer-error').textContent='Recording ownership change…';
+    try {
+      await window.AGRO_TRANSFER_ANIMAL({animalId:id,expectedOwnerId:a.owner,newOwnerId,transferredAt,reference:$('transfer-reference').value.trim(),notes:$('transfer-notes').value.trim()});
+      $('dg').close();
+      if($('dm').open)openM(id);
+    } catch(error) { $('transfer-error').textContent=error.message||'Could not record this transfer.';button.disabled=false; }
+  };
+}
+function apanel(a,c){const o=ownerOrg(a),f=fm(a.owner),p=by(a.parent),ks=kidsAll(a.id),L=actsOf(a.id),tab=PT[c]||'d',transfers=window.AGRO_TRANSFER_HISTORY?.(a.id)||[];
+  let h=`<h3 class="animal-title">${ico(a.species)} ${esc(a.tag)}${transfers.length?` <span class="rollover-badge">${transfers.length} rollover${transfers.length===1?'':'s'}</span>`:''}</h3><div class="hd"><span class="sxb ${a.sex||'U'}">${sexT(a)}</span><span class="pill st-${esc(a.status)}">${esc(a.status)}</span>${o?`<span class="oc" style="--oc:${o.color}">${esc(o.name)}</span>`:''}${a.insured=='Yes'?'<span class="sxb U">🛡 Insured</span>':''}</div>
   <div class="tabs"><button class="${tab=='d'?'on':''}" onclick="setTab('${c}','d')">Details</button><button class="${tab=='a'?'on':''}" onclick="setTab('${c}','a')">Activity (${L.length})</button></div>`;
   if(tab=='a')return h+`<div class="row" style="margin:0 0 8px"><button class="p" onclick="editAct('${a.id}')">+ Add activity</button></div>`+(L.length?L.map(actHtml).join(''):'<p class="mu">No activities recorded yet. Add vaccinations, treatments, breeding, weighing and more.</p>');
   const cover=a.insured=='Yes'&&(a.covStart||a.covEnd)?esc(a.covStart||'?')+' → '+esc(a.covEnd||'?')+(a.covEnd&&a.covEnd<new Date().toISOString().slice(0,10)?' <b class="err">(expired)</b>':''):'';
   h+=sec('basic','Basic information',kv([['Species',esc(a.species)],['Breed',esc(a.breed)],['Sex',sexT(a)],['Born',esc(a.born)+(age(a.born)?' ('+age(a.born)+')':'')],['Status',`<span class="pill st-${esc(a.status)}">${esc(a.status)}</span>`]]))
    +sec('owner','Owner &amp; organization',kv([['Farmer',esc(f?f.name:'none')],['Organization',o?`<span class="sw" style="background:${o.color}"></span> ${esc(o.name)}`:''],['Farm',esc(f&&f.farm)],['Phone',esc(f&&f.phone)],['Location',esc(f&&f.location)]]))
    +sec('lineage','Lineage',`<b>Parent:</b> ${p?chip(p,c)+` <span class="mu">(${esc((fm(p.owner)||{}).name||'?')})</span>`:'<span class="mu">founder — no parent</span>'}<br><b>Offspring (${ks.length}):</b> ${ks.map(k=>chip(k,c)).join('')||'<span class="mu">none</span>'}`)
+   +sec('ownership',`Ownership path (${transfers.length})`,`<p class="mu ownership-intro">One animal identity, carried through each change of owner. Its parent and offspring links stay on the family tree.</p><div class="owner-path">${transfers.length?`<div class="owner-path-node"><span class="owner-path-dot"></span><div><small>FIRST OWNER</small><b>${esc(transfers[0].previousOwnerName)}</b><span>Original record holder</span></div></div>${transfers.map((item,index)=>`<div class="owner-path-node"><span class="owner-path-dot"></span><div><small>ROLLOVER #${index+1}</small><b>${esc(item.newOwnerName)}</b><span>${esc(item.transferred_at)}${item.reference?` · ${esc(item.reference)}`:''}</span>${item.notes?`<em>${esc(item.notes)}</em>`:''}</div></div>`).join('')}`:`<div class="owner-path-node owner-path-node-current"><span class="owner-path-dot"></span><div><small>FIRST OWNER</small><b>${esc(f?f.name:'Unknown')}</b><span>Original record holder · no rollovers recorded</span></div></div>`}</div>`)
    +sec('ins','Insurance',kv([['Insured',a.insured=='Yes'?'Yes':'No'],['Agency',esc(a.insured=='Yes'?insName(a):'')],['Policy no.',esc(a.insured=='Yes'?a.policy:'')],['Coverage',cover]]))
    +sec('att',`Attachments (${(a.att||[]).length})`,attList(a.att,'A',a.id)+`<div class="row"><button class="sm" onclick="addAtt('A','${a.id}')">＋ Attach file</button></div>`)
    +(a.notes?sec('notes','Notes',`<span>${esc(a.notes).replace(/\n/g,'<br>')}</span>`):'');
-  return h+`<div class="row"><button class="p" onclick="editA(null,'${a.id}')">+ Offspring</button><button onclick="editA('${a.id}')">Edit</button><button onclick="$('dm').close();view='l';focus='${a.id}';render(true)">View this branch</button>${ks.length?`<button onclick="bc2('${a.id}',1)">Collapse below</button><button onclick="bc2('${a.id}',0)">Expand below</button>`:''}<button class="d" onclick="delA('${a.id}')">Delete…</button></div>`}
+  return h+`<div class="row animal-actions"><button class="p" onclick="editA(null,'${a.id}')">+ Offspring</button><button onclick="editA('${a.id}')">Edit</button><button onclick="transferAnimal('${a.id}')">Transfer / rollover</button><button onclick="$('dm').close();view='l';focus='${a.id}';render(true)">View this branch</button>${ks.length?`<button onclick="bc2('${a.id}',1)">Collapse below</button><button onclick="bc2('${a.id}',0)">Expand below</button>`:''}<button class="d" onclick="delA('${a.id}')">Delete…</button></div>`}
 function actHtml(x){const nd=x.next&&x.next>=new Date().toISOString().slice(0,10);
   return `<details class="act" ${OP['t'+x.id]?'open':''} ontoggle="OP['t'+'${x.id}']=this.open"><summary><b>${ACT[x.type]||'📝'} ${esc(x.title||x.type)}</b><span class="m">${esc(x.date||'')} · ${esc(x.type)}${x.cost!==''&&x.cost!=null?' · '+peso(x.cost):''}</span></summary><div>
   ${kv([['Date',esc(x.date)],['Type',esc(x.type)],['Performed by',esc(x.by)],['Cost',peso(x.cost)],['Next due',x.next?`<span class="${nd?'due':''}">${esc(x.next)}</span>`:'']])}
@@ -258,14 +284,14 @@ function editA(id,par,owner){if(!S.farmers.length)return alert('Add a farmer fir
   form(id?'Edit animal':'Add animal',[
     {k:'tag',l:'Tag / name *'},{k:'species',l:'Species *',list:'sp'},{k:'breed',l:'Breed'},{k:'sex',l:'Sex',t:'sel',o:[['','Unknown'],['F','Female (doe / sow / cow / ewe)'],['M','Male (buck / boar / bull / ram)']]},
     {k:'born',l:'Date of birth',t:'date'},{k:'status',l:'Status',t:'sel',o:STAT.map(x=>[x,x])},
-    {k:'owner',l:'Owner (farmer) *',t:'sel',w:1,o:S.farmers.map(f=>[f.id,f.name+' — '+((farmerOrg(f)||{}).name||'no org')])},
+    ...(id?[]:[{k:'owner',l:'Owner (farmer) *',t:'sel',w:1,o:S.farmers.map(f=>[f.id,f.name+' — '+((farmerOrg(f)||{}).name||'no org')])}]),
     {k:'parent',l:'Parent (dam / sire)',t:'sel',w:1,o:[['','— none (founder)']].concat(S.animals.filter(x=>!bad.has(x.id)).map(x=>[x.id,x.tag+' ('+x.species+') — '+((fm(x.owner)||{}).name||'?')]))},
     {k:'insured',l:'Insured?',t:'sel',o:[['No','No'],['Yes','Yes']]},{k:'insurer',l:'Insurance agency',t:'sel',o:CFG.INSURERS.map(x=>[x,x]),dep:['insured','Yes']},
     {k:'insOther',l:'Agency name (other)',dep:['insurer','Other'],w:1},{k:'policy',l:'Policy / certificate no.',dep:['insured','Yes']},
     {k:'covStart',l:'Coverage start',t:'date',dep:['insured','Yes']},{k:'covEnd',l:'Coverage end',t:'date',dep:['insured','Yes']},
     {k:'notes',l:'Notes',t:'ta',w:1},{k:'att',l:'Attachments (photos, certificates, vet records, policy…)',t:'file',w:1}],a,async x=>{
-    if(!x.tag||!x.species||!x.owner)return'Tag, species and owner are required.';
-    const org=(fm(x.owner)||{}).org;if(S.animals.some(z=>z.id!=id&&norm(z.tag)==norm(x.tag)&&(fm(z.owner)||{}).org==org))return'This tag is already used in that organization.';
+    if(!x.tag||!x.species||!(id?a.owner:x.owner))return'Tag, species and owner are required.';
+    const ownerId=id?a.owner:x.owner,org=(fm(ownerId)||{}).org;if(S.animals.some(z=>z.id!=id&&norm(z.tag)==norm(x.tag)&&(fm(z.owner)||{}).org==org))return'This tag is already used in that organization.';
     if(x.parent&&bad.has(x.parent))return'Invalid parent (circular).';const p=by(x.parent);if(p&&p.born&&x.born&&x.born<p.born)return'Born before its parent.';
     if(x.covStart&&x.covEnd&&x.covEnd<x.covStart)return'Coverage end is before the start.';
     x.att=await fin(x.att);if(id)Object.assign(a,x);else{x.id='A'+uid();S.animals.push(x);sel=x.id;col.delete(x.parent)}persist()})}
