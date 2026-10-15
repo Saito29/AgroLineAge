@@ -106,9 +106,12 @@
         else cloudStatus('A shared update is waiting. Close open dialogs to sync.');
       });
     }
-    sharedChannel=channel.subscribe(status=>{
+    sharedChannel=channel.subscribe((status,error)=>{
       if(status==='SUBSCRIBED')cloudStatus('Live updates connected.');
-      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')cloudStatus('Live updates unavailable. Refresh the page to reconnect.',true);
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){
+        console.error('AgroLineage Realtime subscription:',status,error||'');
+        cloudStatus(`Live updates unavailable (${status}). Check Realtime publication and connection.`,true);
+      }
     });
   }
   for(const id of ['dm','dg'])el(id).addEventListener('close',()=>{

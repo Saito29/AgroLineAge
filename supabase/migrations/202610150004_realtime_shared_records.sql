@@ -7,7 +7,7 @@ begin
   if not exists (select 1 from pg_publication where pubname='supabase_realtime') then
     create publication supabase_realtime;
   end if;
-  foreach v_table in array array['organizations','owners','animals','activities','attachments'] loop
+  foreach v_table in array array['organizations','owners','animals','activities','attachments','ownership_transfers'] loop
     if not exists (
       select 1 from pg_publication_tables
       where pubname='supabase_realtime' and schemaname='public' and tablename=v_table

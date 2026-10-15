@@ -6,6 +6,7 @@ Apply migrations in order with the Supabase CLI (`supabase db push`) or the SQL 
 2. `migrations/202610150002_private_access_and_approvals.sql`
 3. `migrations/202610150003_archiving_and_lineage_guards.sql`
 4. `migrations/202610150004_realtime_shared_records.sql`
+5. `migrations/202610150005_realtime_ownership_transfers.sql`
 
 The frontend is connected through `src/js/config.js` using the Project URL and publishable key. The key is intended for browser use; never place a secret/service-role key in the repository. In Authentication > URL Configuration, set the Site URL to the deployed app (for example, `https://saito29.github.io/AgroLineAge/`) and add that URL to Redirect URLs. Add any local development URL too. Enable email/password sign-in and configure the password recovery redirect to the same app URL. Email confirmation is recommended. A signup creates a profile with `approval_status = 'pending'` and `app_role = 'user'`; users cannot write either field through the Data API. A login session alone grants no application data access. RLS and the transfer RPC check the current profile row on every request, so suspending a signed-in user takes effect without waiting for a JWT refresh.
 
@@ -23,8 +24,11 @@ All authenticated approved users share the same livestock tables. Pending, rejec
 
 Approved users load and save the shared organization, owner, animal, and activity records through the Data API. Animal ownership changes use the guarded transfer RPC. Attachments use the private `animal-attachments` bucket. When a project has no records, the app offers to import the current browser's locally saved records. Existing Supabase data takes precedence and is loaded into the app.
 
-Apply all four migrations, including the Realtime publication migration, then deploy the updated files. Live shared-record refreshes require authenticated approved users and working Realtime subscriptions. The app cannot verify the Supabase connection until the migrations have been run and the Auth redirect URLs are configured in the project dashboard.
+Apply all five migrations, including the Realtime publication migrations, then deploy the updated files. If migration 004 was already applied, migration 005 adds the missing ownership transfer table. Live shared-record refreshes require authenticated approved users and working Realtime subscriptions. The app cannot verify the Supabase connection until the migrations have been run and the Auth redirect URLs are configured in the project dashboard.
 
 ## Livestock ownership rollover
 
 Use **Transfer / rollover** from an animal's details to record a change of owner. The animal remains the same record, so its tag, parent, activities, attachments, and offspring links stay intact. Existing offspring keep their recorded owners; offspring added after the transfer inherit the animal's new owner and remain connected as a new branch of the same family tree. The ownership journey lists each transfer in order as rollover #1, #2, and so on. Transfers use the guarded `transfer_animal` RPC from migration 2.
+### Live update troubleshooting
+
+After signing in, the status bar should report **Live updates connected**. Saving on the editing device should report **All changes saved to the shared Supabase project**. A save error means the change did not reach Supabase. If saving succeeds but another signed-in approved user does not see a change, check that the deployed site includes the current `src/js/access.js`, both users are using the same Supabase project, and the shared tables appear under Database > Publications > `supabase_realtime`. A refresh is a useful check: if the change appears only after reloading, the database save worked but the realtime subscription or table publication is not working. Open editors/dialogs defer automatic refresh until they are closed.
