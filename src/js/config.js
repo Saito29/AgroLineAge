@@ -5,5 +5,5 @@ const CFG = {
   ORG_NAME: "Farmers Organization Livestock Family Tree", // used as the PowerPoint title (organizations themselves are managed inside the app)
   // Choices shown in the "Insurance agency" dropdown of the animal form. Edit freely.
   INSURERS: ["PCIC (Philippine Crop Insurance Corp.)", "CLIMBS", "Private insurance company", "Cooperative / mutual aid fund", "Other"],
-  MAX_FILE_MB: 100, // largest single attachment
+  MAX_FILE_MB: 50, // largest single attachment
 };

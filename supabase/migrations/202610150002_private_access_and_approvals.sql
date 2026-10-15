@@ -61,8 +61,8 @@ create policy audit_approved_read on public.audit_events for select to authentic
 
 -- One private shared bucket. Object policies check the same approval row as SQL data.
 insert into storage.buckets(id,name,public,file_size_limit)
-values ('animal-attachments','animal-attachments',false,104857600)
-on conflict (id) do update set public = false;
+values ('animal-attachments','animal-attachments',false,52428800)
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit;
 create policy approved_attachment_read on storage.objects for select to authenticated
   using (bucket_id='animal-attachments' and public.is_approved());
 create policy approved_attachment_insert on storage.objects for insert to authenticated
