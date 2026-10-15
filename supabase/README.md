@@ -5,6 +5,7 @@ Apply migrations in order with the Supabase CLI (`supabase db push`) or the SQL 
 1. `migrations/202610150001_shared_livestock.sql`
 2. `migrations/202610150002_private_access_and_approvals.sql`
 3. `migrations/202610150003_archiving_and_lineage_guards.sql`
+4. `migrations/202610150004_realtime_shared_records.sql`
 
 The frontend is connected through `src/js/config.js` using the Project URL and publishable key. The key is intended for browser use; never place a secret/service-role key in the repository. In Authentication > URL Configuration, set the Site URL to the deployed app (for example, `https://saito29.github.io/AgroLineAge/`) and add that URL to Redirect URLs. Add any local development URL too. Enable email/password sign-in and configure the password recovery redirect to the same app URL. Email confirmation is recommended. A signup creates a profile with `approval_status = 'pending'` and `app_role = 'user'`; users cannot write either field through the Data API. A login session alone grants no application data access. RLS and the transfer RPC check the current profile row on every request, so suspending a signed-in user takes effect without waiting for a JWT refresh.
 
@@ -22,4 +23,4 @@ All authenticated approved users share the same livestock tables. Pending, rejec
 
 Approved users load and save the shared organization, owner, animal, and activity records through the Data API. Animal ownership changes use the guarded transfer RPC. Attachments use the private `animal-attachments` bucket. When a project has no records, the app offers to import the current browser's locally saved records. Existing Supabase data takes precedence and is loaded into the app.
 
-Deploy the updated files after applying all three migrations. The app cannot verify the Supabase connection until the migrations have been run and the Auth redirect URLs are configured in the project dashboard.
+Apply all four migrations, including the Realtime publication migration, then deploy the updated files. Live shared-record refreshes require authenticated approved users and working Realtime subscriptions. The app cannot verify the Supabase connection until the migrations have been run and the Auth redirect URLs are configured in the project dashboard.

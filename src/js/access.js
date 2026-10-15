@@ -3,13 +3,21 @@
   const el = id => document.getElementById(id);
   const note = (msg, error = false) => { el('auth-error').textContent = msg || ''; el('auth-error').className = error ? 'err' : 'mu'; el('auth-error').hidden = !msg; };
   const show = (id, on) => { el(id).hidden = !on; };
-  let client = null, mode = 'login', currentProfile = null, authReady = false, statusChannel = null;
+  let client = null, mode = 'login', currentProfile = null, authReady = false, statusChannel = null, sharedChannel = null;
   let dbBaseline = {organizations:new Map(),owners:new Map(),animals:new Map(),activities:new Map(),attachments:new Map()};
   let cloudQueue = Promise.resolve();
+  let pendingLocalSaves=0, localSaveFailed=false, remoteRefreshPending=false, cloudSaving=false, remoteRefreshTimer=null;
   const escHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fail = message => { document.body.classList.add('auth-blocked'); document.body.classList.remove('app-ready'); el('access-message').textContent = message; };
 
+  function stopLiveChannels() {
+    if (!client) return;
+    if (sharedChannel) client.removeChannel(sharedChannel);
+    if (statusChannel) client.removeChannel(statusChannel);
+    sharedChannel=null; statusChannel=null;
+  }
   function setSignedOut(message = '') {
+    stopLiveChannels();
     currentProfile = null; authReady = false;
     document.body.classList.add('auth-blocked'); document.body.classList.remove('app-ready');
     el('auth-title').textContent = mode === 'signup' ? 'Request access' : mode === 'recovery' ? 'Choose a new password' : 'Welcome back';
@@ -56,6 +64,40 @@
 
   const nullable = value => value === '' || value == null ? null : value;
   const cloudStatus = (message, bad=false) => { const status=el('st'); if(status){status.textContent=message;status.className=bad?'err':'';} };
+  const hasOpenEditor = () => Boolean(el('dm')?.open || el('dg')?.open);
+  function scheduleSharedRefresh() {
+    clearTimeout(remoteRefreshTimer);
+    remoteRefreshTimer=setTimeout(async()=>{
+      if(!remoteRefreshPending||!authReady)return;
+      if(pendingLocalSaves||cloudSaving||hasOpenEditor()) {
+        cloudStatus('A shared update is waiting. Close open dialogs to sync.'); return;
+      }
+      if(localSaveFailed) {
+        cloudStatus('A shared update is waiting. Resolve the cloud save error before syncing.',true); return;
+      }
+      remoteRefreshPending=false;
+      try { await loadSharedRecords(); cloudStatus('Shared records updated live.'); }
+      catch(error) { remoteRefreshPending=true; cloudStatus(`Live refresh failed: ${error.message||'check your connection'}`,true); }
+    },250);
+  }
+  function subscribeSharedChanges() {
+    if(sharedChannel)client.removeChannel(sharedChannel);
+    let channel=client.channel('shared-records-live');
+    for(const table of ['organizations','owners','animals','activities','attachments']) {
+      channel=channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{
+        remoteRefreshPending=true;
+        if(!pendingLocalSaves&&!cloudSaving&&!hasOpenEditor())scheduleSharedRefresh();
+        else cloudStatus('A shared update is waiting. Close open dialogs to sync.');
+      });
+    }
+    sharedChannel=channel.subscribe(status=>{
+      if(status==='SUBSCRIBED')cloudStatus('Live updates connected.');
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')cloudStatus('Live updates unavailable. Refresh the page to reconnect.',true);
+    });
+  }
+  for(const id of ['dm','dg'])el(id).addEventListener('close',()=>{
+    if(remoteRefreshPending&&!pendingLocalSaves&&!cloudSaving&&!hasOpenEditor())scheduleSharedRefresh();
+  });
   async function saveSharedRecords() {
     if(!authReady || !currentProfile) return;
     const {orgs,farmers,animals,acts}=S;
@@ -79,6 +121,7 @@
       }
     };
     try {
+      cloudSaving=true;
       cloudStatus('Saving shared changes…');
       await write('organizations',orgRows);
       await write('owners',ownerRows);
@@ -117,6 +160,9 @@
     } catch(error) {
       cloudStatus(`Cloud save failed: ${error.message||'check your connection and reload before continuing'}`,true);
       throw error;
+    } finally {
+      cloudSaving=false;
+      if(remoteRefreshPending&&!pendingLocalSaves)scheduleSharedRefresh();
     }
   }
   async function archiveMissing(table, ids) {
@@ -155,7 +201,14 @@
       dbBaseline[table]=new Map(data.map(x=>[x.id,x]));
     }
   }
-  window.AGRO_PERSIST=()=>{cloudQueue=cloudQueue.then(saveSharedRecords).catch(()=>{});return cloudQueue;};
+  window.AGRO_PERSIST=()=>{
+    pendingLocalSaves++;
+    cloudQueue=cloudQueue.then(saveSharedRecords).then(()=>{localSaveFailed=false;}).catch(()=>{localSaveFailed=true;}).finally(()=>{
+      pendingLocalSaves=Math.max(0,pendingLocalSaves-1);
+      if(!pendingLocalSaves&&remoteRefreshPending)scheduleSharedRefresh();
+    });
+    return cloudQueue;
+  };
   window.AGRO_OPEN_ATTACHMENT=async meta=>{
     if(!meta.path)return alert('This attachment is waiting to sync from this device.');
     const {data,error}=await client.storage.from('animal-attachments').download(meta.path);
@@ -178,6 +231,7 @@
       if (error) throw error;
       currentProfile = profile;
       if (profile.approval_status !== 'approved') {
+        stopLiveChannels();
         el('auth-title').textContent = profile.approval_status === 'pending' ? 'Request received' : 'Access unavailable';
         el('access-message').textContent = 'Your AgroLineage account is ' + profile.approval_status + '.';
         el('approval-state').innerHTML = `<p><b>Status:</b> ${escHtml(profile.approval_status)}</p><p>${profile.approval_status==='pending'?'Your account was created and is waiting for administrator approval.':profile.approval_status==='rejected'?'An administrator has declined this application.':'An administrator has suspended application access.'}</p>${profile.status_reason?`<p>Reason: ${escHtml(profile.status_reason)}</p>`:''}`;
@@ -195,6 +249,7 @@
       if(cloudEmpty&&localSnapshot&&(localSnapshot.orgs.length||localSnapshot.farmers.length||localSnapshot.animals.length)&&confirm('This Supabase project has no livestock records. Import the data saved in this browser into the shared project?')) {
         S=localSnapshot;render(true);await saveSharedRecords();
       }
+      subscribeSharedChanges();
       if (statusChannel) client.removeChannel(statusChannel);
       statusChannel = client.channel('profile-access-'+profile.id).on('postgres_changes',
         {event:'UPDATE',schema:'public',table:'profiles',filter:'id=eq.'+profile.id}, () => setTimeout(async()=>{const {data}=await client.auth.getSession();await checkAccess(data.session)},0)).subscribe();
