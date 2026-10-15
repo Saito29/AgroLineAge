@@ -28,7 +28,7 @@ function migrate(d){d=d&&typeof d=='object'?d:{};
   s.farmers.forEach(f=>{if(!s.orgs.some(o=>o.id==f.org))f.org=s.orgs[0].id});
   s.animals.forEach(a=>{a.status=a.status||'Alive';a.insured=a.insured||'No';a.att=a.att||[];a.parent=a.parent||''});s.acts.forEach(x=>{x.att=x.att||[]});return s}
 function persist(noR){S.upd=Date.now();try{localStorage.setItem('lt2',JSON.stringify(S));localStorage.setItem('lt2d','1')}catch(e){setSt('Browser storage is full — export a backup',1)}
-  if(!noR)render();clearTimeout(timer);if(canSync())timer=setTimeout(driveSave,1500);stat()}
+  if(!noR)render();clearTimeout(timer);if(window.AGRO_PERSIST)window.AGRO_PERSIST();else if(canSync())timer=setTimeout(driveSave,1500);stat()}
 const dirty=()=>localStorage.getItem('lt2d')=='1';
 
 // ---------- attachments (stored on this device in IndexedDB; uploaded to Drive when signed in) ----------
@@ -39,8 +39,8 @@ const allAtts=()=>[...S.animals.flatMap(a=>a.att||[]),...S.acts.flatMap(x=>x.att
 const findAtt=id=>allAtts().find(m=>m.id==id);
 async function saveFiles(files){const out=[];for(const f of files){if(f.size>(CFG.MAX_FILE_MB||10)*1048576)throw new Error(`"${f.name}" is larger than ${CFG.MAX_FILE_MB||10} MB.`);
   const id='X'+uid();await fPut(id,{blob:f});out.push({id,name:f.name,type:f.type||'application/octet-stream',size:f.size})}return out}
-function dropFile(m){fDel(m.id).catch(()=>0);if(m.dr&&canSync())dr('https://www.googleapis.com/drive/v3/files/'+m.dr.id,{method:'DELETE'}).catch(()=>0)}
-async function openAtt(id){const m=findAtt(id);if(!m)return;let r;try{r=await fGet(id)}catch(e){}
+function dropFile(m){if(window.AGRO_DELETE_ATTACHMENT){window.AGRO_DELETE_ATTACHMENT(m);return}fDel(m.id).catch(()=>0);if(m.dr&&canSync())dr('https://www.googleapis.com/drive/v3/files/'+m.dr.id,{method:'DELETE'}).catch(()=>0)}
+async function openAtt(id){const m=findAtt(id);if(!m)return;if(window.AGRO_OPEN_ATTACHMENT)return window.AGRO_OPEN_ATTACHMENT(m);let r;try{r=await fGet(id)}catch(e){}
   if(!r&&m.dr&&canSync()){try{const b=await(await dr('https://www.googleapis.com/drive/v3/files/'+m.dr.id+'?alt=media')).blob();r={blob:b};fPut(id,r).catch(()=>0)}catch(e){}}
   if(r){const u=URL.createObjectURL(new Blob([r.blob],{type:m.type}));if(!window.open(u,'_blank')){const a=document.createElement('a');a.href=u;a.download=m.name;a.click()}setTimeout(()=>URL.revokeObjectURL(u),60000)}
   else if(m.dr&&m.dr.link)window.open(m.dr.link,'_blank');else alert('This file is not on this device yet. Sign in and go online to download it from Google Drive.')}
@@ -52,10 +52,10 @@ const attList=(L,k,id)=>(L&&L.length?L.map(m=>`<div class="att">📎 <a onclick=
 // ---------- online / offline + Google ----------
 const canSync=()=>!!tok&&navigator.onLine&&!forceOff;
 function setSt(t,bad){$('st').textContent=t;$('st').className=bad?'err':''}
-function stat(){let t;if(!tok)t=dirty()||S.animals.length?'Saved on this device only — sign in to sync to Google Drive':'';
+function stat(){if(window.AGRO_SUPABASE)return;let t;if(!tok)t=dirty()||S.animals.length?'Saved on this device only — sign in to sync to Google Drive':'';
   else if(forceOff||!navigator.onLine)t=dirty()?'Offline — changes are saved here and will sync when you are back online':'Offline — everything is saved on this device';
   else t=dirty()?'Unsynced changes…':'Synced to Google Drive ✓'+(lastSync?' '+lastSync.toLocaleTimeString():'');setSt(t)}
-function netUI(){const on=navigator.onLine&&!forceOff;$('net').className=on?'':'off';$('net').lastChild.textContent=on?'Online':forceOff?'Offline (manual)':'Offline';$('ob').textContent=forceOff?'Go online':'Work offline';stat()}
+function netUI(){const on=navigator.onLine&&!forceOff;$('net').className=on?'':'off';$('net').lastChild.textContent=on?'Online':forceOff?'Offline (manual)':'Offline';if($('ob'))$('ob').textContent=forceOff?'Go online':'Work offline';stat()}
 function toggleOffline(){forceOff=!forceOff;localStorage.setItem('lt2o',forceOff?'1':'');netUI();if(canSync()&&dirty())driveSave()}
 addEventListener('online',()=>{netUI();if(canSync()&&dirty())driveSave()});addEventListener('offline',netUI);
 async function dr(url,o={}){const r=await fetch(url,{...o,headers:{Authorization:'Bearer '+tok,...o.headers}});
@@ -301,8 +301,7 @@ function pptx(){const p=new PptxGenJS(),h=t=>({text:t,options:{bold:true}});let 
     s.addText(`${f.name} — ${o.name}`,{x:.4,y:.3,w:9,fontSize:22,bold:true});s.addText([f.farm,f.phone,f.location].filter(Boolean).join('  ·  '),{x:.4,y:.8,w:9,fontSize:12});
     s.addTable([['Tag','Species','Sex','Born','Status','Insured','Parent'].map(h)].concat(as.slice(i,i+11).map(a=>{const q=by(a.parent);return[a.tag,a.species,sexT(a),a.born||'',a.status,a.insured=='Yes'?insName(a)||'Yes':'No',q?q.tag+' ('+((fm(q.owner)||{}).name||'?')+')':'—'].map(t=>({text:String(t)}))})),{x:.4,y:1.2,w:9.2,fontSize:10})}}));return p}
 const MX='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',MP='application/vnd.openxmlformats-officedocument.presentationml.presentation';
-function exportDlg(){const ok=canSync();$('dg').innerHTML=`<h3>Export</h3><div class="row"><button onclick="ex('xd')">Download .xlsx</button><button onclick="ex('pd')">Download .pptx</button></div>
-  <p>Google Drive ${ok?'':'(sign in and go online first)'}:</p><div class="row"><button ${ok?'':'disabled'} onclick="ex('xu')">Excel → Drive</button><button ${ok?'':'disabled'} onclick="ex('gs')">Google Sheet</button><button ${ok?'':'disabled'} onclick="ex('pu')">PowerPoint → Drive</button></div><div id="ee" style="margin-top:8px"></div><div class="row"><button onclick="$('dg').close()">Close</button></div>`;$('dg').showModal()}
+function exportDlg(){$('dg').innerHTML=`<h3>Export</h3><p>Data is shared through the connected Supabase project.</p><div class="row"><button onclick="ex('xd')">Download .xlsx</button><button onclick="ex('pd')">Download .pptx</button></div><div id="ee" style="margin-top:8px"></div><div class="row"><button onclick="$('dg').close()">Close</button></div>`;$('dg').showModal()}
 async function ex(k){const e=$('ee');try{
   if(k=='xd')return XLSX.writeFile(xlsx(),'livestock-tree.xlsx');if(k=='pd')return pptx().writeFile({fileName:'livestock-tree.pptx'});
   e.textContent='Uploading…';let r;
